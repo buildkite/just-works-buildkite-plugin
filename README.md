@@ -441,6 +441,10 @@ configuration in Buildkite's checked-in pipelines.
 
 ## Contributing
 
+Follow Buildkite's recommended plugin development practices. Ask the maintainer
+before extending them or introducing any dependency, including development tools,
+test libraries, and CI plugins. This applies to humans and agents alike.
+
 1. Create a branch or fork, and read [AGENTS.md](AGENTS.md).
 2. Make the smallest change with tests for its behavior. Fix dependency bugs
    upstream rather than patching vendored files or adding replacement behavior.

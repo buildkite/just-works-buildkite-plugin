@@ -1,5 +1,9 @@
 # Repository invariants
 
+- Follow Buildkite's official plugin-writing guide and plugin template for
+  development practices. Ask the user before extending those practices or adding
+  any dependency, including development tools, test libraries, and CI plugins.
+  Do not substitute an unapproved dependency in another language.
 - Never modify vendored plugins. Every file under `vendor/` must remain
   byte-for-byte identical to the upstream file at the revision pinned in README.md.
   This applies to humans, agents, formatters, generators and runtime hooks.
