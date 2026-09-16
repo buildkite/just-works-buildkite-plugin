@@ -17,7 +17,7 @@ if [[ "${BUILDKITE_PLUGIN_AWS_SSM_INCLUDE_DEFAULT_PREFIX:-true}" == true ]]; the
     while IFS= read -r name; do
       leaf="${name#"$prefix"}"
       if [[ "$name" != "$prefix"* || ! "$leaf" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]; then
-        echo "SSM parameter $name cannot be mapped to an environment variable. Disable ssm.include-default-prefix and use ssm.parameters for an explicit mapping." >&2
+        echo "SSM parameter $name cannot be mapped to an environment variable. Disable ssm.include-default-prefix and use ssm.additional_parameters for an explicit mapping." >&2
         exit 1
       fi
       key="${leaf^^}"
@@ -29,14 +29,14 @@ if [[ "${BUILDKITE_PLUGIN_AWS_SSM_INCLUDE_DEFAULT_PREFIX:-true}" == true ]]; the
       esac
       for existing in "${discovered_keys[@]}"; do
         if [[ "$existing" == "$key" ]]; then
-          echo "Multiple SSM parameters map to $key under $prefix. Disable ssm.include-default-prefix and use ssm.parameters to choose distinct names." >&2
+          echo "Multiple SSM parameters map to $key under $prefix. Disable ssm.include-default-prefix and use ssm.additional_parameters to choose distinct names." >&2
           exit 1
         fi
       done
       discovered_keys+=("$key")
       config_key="BUILDKITE_PLUGIN_AWS_SSM_PARAMETERS_$key"
       # Explicit destinations take precedence over discovered defaults.
-      if [[ ! -v "$config_key" ]]; then
+      if [[ ${!config_key+x} != x ]]; then
         export "$config_key=$name"
       fi
     done < <(jq -r '.Names[]' <<< "$response")
@@ -50,7 +50,7 @@ if [[ ${#configured[@]} == 0 ]]; then
   if [[ "${BUILDKITE_PLUGIN_AWS_SSM_INCLUDE_DEFAULT_PREFIX:-true}" == true ]]; then
     echo "No SSM parameters found under prefix \"$prefix\". Create the parameters, override ssm.prefix, or set ssm.enabled: false." >&2
   else
-    echo 'SSM prefix loading is disabled and no parameters were specified. Set ssm.parameters, enable ssm.include-default-prefix, or set ssm.enabled: false.' >&2
+    echo 'SSM prefix loading is disabled and no parameters were specified. Set ssm.additional_parameters, enable ssm.include-default-prefix, or set ssm.enabled: false.' >&2
   fi
   exit 1
 fi

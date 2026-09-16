@@ -64,7 +64,7 @@ configuration:
         region:
           type: string
           minLength: 1
-        parameters:
+        additional_parameters:
           type: object
           minProperties: 1
           patternProperties:

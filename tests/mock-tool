@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+tool=${0##*/}; args=("$@"); event=$tool
+case "$tool:$*" in
+  'aws:--version') echo 'aws-cli/2.15.0 Python/3.11 Linux/6'; exit 0 ;;
+  'aws:configure get region') echo "${PROFILE_REGION:-}"; exit 0 ;;
+esac
+if [[ $tool == aws ]]; then
+  if [[ " $* " == *' assume-role-with-web-identity '* ]]; then for ((i=0;i<$#;i++)); do [[ ${args[i]} == --role-arn ]] && event="role:${args[i+1]}"; done
+  elif [[ " $* " == *' get-caller-identity '* ]]; then event=identity
+  elif [[ " $* " == *' get-login-password '* ]]; then event=ecr
+  elif [[ " $* " == *' get-parameters-by-path '* ]]; then event=ssm-path
+  elif [[ " $* " == *' get-parameters '* ]]; then [[ " $* " == *InvalidParameters* ]] && event=ssm-check || event=ssm
+  elif [[ ${args[*]:0:2} == 'lambda invoke' ]]; then event=exchange; fi
+elif [[ $tool == buildkite-agent && " $* " == *' oidc request-token '* && " $* " == *exchange* ]]; then event=exchange-oidc; fi
+jq -cn --arg e "$event" --arg k "${AWS_ACCESS_KEY_ID:-}" --arg r "${AWS_REGION:-}" --arg d "${AWS_DEFAULT_REGION:-}" --args '$ARGS.named + {args:$ARGS.positional}' -- "$@" >>"$CALLS"
+if [[ $event == "${FAIL:-}" ]]; then echo 'An error occurred (AccessDenied): verbatim upstream detail' >&2; exit 42; fi
+case "$event" in
+  role:*) [[ -n ${EMPTY_STS:-} ]] && echo '{}' || jq -cn --arg k "$event" '{Credentials:{AccessKeyId:$k,SecretAccessKey:"secret",SessionToken:"token"},AssumedRoleUser:{AssumedRoleId:"example"}}' ;;
+  identity) [[ " $* " == *' --query '* ]] && echo 123456789012 || echo '{"Account":"123456789012","Arn":"arn:aws:iam::123456789012:role/agent"}' ;;
+  ecr) echo ecr-password ;;
+  buildkite-agent)
+    [[ ${args[*]} == 'oidc request-token --audience sts.amazonaws.com' ]]
+    echo oidc-token ;;
+  exchange-oidc)
+    [[ ${args[*]} == 'oidc request-token --audience exchange --claim organization_id --claim pipeline_id' ]]
+    if [[ -z ${EMPTY_EXCHANGE_OIDC:-} ]]; then echo exchange-oidc-secret; fi ;;
+  exchange)
+    [[ $* == *'--payload fileb:///dev/stdin'* ]]
+    [[ ${args[*]} == *'--function-name arn:aws:lambda:us-east-1:032379705303:function:exchange'* ]]
+    [[ ${args[*]} == *'--region us-east-1'* ]]
+    response=${args[-1]}; [[ $(stat -c %a "$response") == 600 ]]
+    jq -e --arg o "${EXPECT_GITHUB_ORG:-buildkite}" '. == {token:"exchange-oidc-secret",github_organization:$o}' >/dev/null
+    if [[ -v EXCHANGE_RESPONSE ]]; then printf '%s' "$EXCHANGE_RESPONSE"; else printf '%s' '{"token":"ghs_exchange_secret","expires_at":"2026-09-16T23:00:00Z"}'; fi >"$response"
+    if [[ -v LAMBDA_METADATA ]]; then echo "$LAMBDA_METADATA"; else echo '{"StatusCode":200}'; fi ;;
+  docker) [[ $(cat) == ecr-password ]] ;;
+  ssm-path)
+    for ((i=0;i<$#;i++)); do [[ ${args[i]} == --path ]] && prefix=${args[i+1]}; [[ ${args[i]} == --next-token ]] && index=${args[i+1]}; done
+    index=${index:-0}; pages=${PAGES:-'[[["github_token","prefix-secret"]]]'}
+    jq -cn --argjson p "$pages" --argjson i "$index" --arg prefix "$prefix" '$p[$i] as $page | {Names:[$page[][0]|$prefix+.]} + (if $i+1 < ($p|length) then {NextToken:(($i+1)|tostring)} else {} end)' ;;
+  ssm-check|ssm)
+    names=(); seen=false; for arg in "$@"; do if $seen; then names+=("$arg"); elif [[ $arg == --names ]]; then seen=true; fi; done
+    ((${#names[@]} <= 10)); invalid=(); for n in "${names[@]}"; do [[ $n == "${MISSING:-!}" ]] && invalid+=("$n"); done
+    if [[ $event == ssm-check ]]; then
+      [[ " $* " != *' --with-decryption '* ]]
+      jq -cn --args '$ARGS.positional' -- "${invalid[@]}"
+    else
+      [[ " $* " == *' --query Parameters[].[Name,Value] '* ]]
+      [[ " $* " == *' --output text '* ]]
+      [[ " $* " == *' --with-decryption '* ]]
+      prefix=${BUILDKITE_PLUGIN_JUST_WORKS_SSM_PREFIX:-/pipelines/buildkite/example/}; prefix=${prefix%/}/; pages=${PAGES:-'[[["github_token","prefix-secret"]]]'}
+      for ((i=${#names[@]}-1;i>=0;i--)); do
+        n=${names[i]}; [[ $n == "${MISSING:-!}" ]] && continue
+        encoded=$(jq -r --arg full "$n" --arg prefix "$prefix" '[.[][] | select(($prefix + .[0]) == $full) | .[1] | @base64][0] // empty' <<<"$pages")
+        printf '%s\t' "$n"
+        if [[ -n $encoded ]]; then printf '%s' "$encoded" | base64 -d; else printf '%s' "${VALUE}${n#/app/token}"; fi
+        printf '\n'
+      done
+    fi ;;
+  *) echo "unexpected mock invocation: $tool $*" >&2; exit 99 ;;
+esac

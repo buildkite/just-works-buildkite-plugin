@@ -20,10 +20,10 @@ jw_validate() {
     fi
   done
   if jw_enabled SSM_ENABLED true; then
-    for name in ${!BUILDKITE_PLUGIN_JUST_WORKS_SSM_PARAMETERS_@}; do
-      value="${name#BUILDKITE_PLUGIN_JUST_WORKS_SSM_PARAMETERS_}"
+    for name in ${!BUILDKITE_PLUGIN_JUST_WORKS_SSM_ADDITIONAL_PARAMETERS_@}; do
+      value="${name#BUILDKITE_PLUGIN_JUST_WORKS_SSM_ADDITIONAL_PARAMETERS_}"
       if [[ ! "$value" =~ ^[A-Z_][A-Z0-9_]*$ || -z "${!name}" ]]; then
-        jw_error "Each parameters entry needs an uppercase environment variable name and a non-empty SSM parameter name."; return 1
+        jw_error "Each ssm.additional_parameters entry needs an uppercase environment variable name and a non-empty SSM parameter name."; return 1
       fi
       case "$value" in
         PATH|BASH*|SHELLOPTS|ENV|IFS|LD_*|BUILDKITE_PLUGIN_*|JW_*)
