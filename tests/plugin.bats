@@ -216,7 +216,7 @@ teardown() { teardown_plugin; }
   [[ $(events | grep -c '^exchange' || :) == 0 ]]
   [[ -z $(exported GH_TOKEN) ]]
 }
-@test "Exchange transport errors preserve original status and text" { cfg GITHUB_CHANGES_ENABLED true; for spec in 'exchange-oidc|Could not request a Buildkite OIDC token' 'exchange|enable_exchange = true'; do export FAIL=${spec%%|*}; run_plugin; assert_status 42; assert_output_has 'verbatim upstream detail'; assert_output_has "${spec#*|}"; done; }
+@test "Exchange transport errors preserve original status and text" { cfg GITHUB_CHANGES_ENABLED true; for spec in 'exchange-oidc|Could not request a Buildkite OIDC token' 'exchange|enable_github_token_exchange = true'; do export FAIL=${spec%%|*}; run_plugin; assert_status 42; assert_output_has 'verbatim upstream detail'; assert_output_has "${spec#*|}"; done; }
 @test "Exchange service errors preserve exact messages and actionable hints" { cfg GITHUB_CHANGES_ENABLED true; for spec in 'constraint_mismatch|immutable Buildkite organization/pipeline IDs' 'token_validation_failed|agent clock' 'bad_request|github.organization' 'upstream_failure|App private key in SSM'; do code=${spec%%|*}; export EXCHANGE_RESPONSE="{\"error\":{\"code\":\"$code\",\"message\":\"Original Exchange error: exact detail\"}}"; run_plugin; assert_status 1; assert_output_has 'Original Exchange error: exact detail'; assert_output_has "${spec#*|}"; done; }
 @test "Exchange rejects malformed responses, empty tokens and Lambda errors" {
   cfg GITHUB_CHANGES_ENABLED true

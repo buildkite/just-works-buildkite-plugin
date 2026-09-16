@@ -32,7 +32,7 @@ if metadata=$(aws lambda invoke --region us-east-1 --function-name "$function_ar
   :
 else
   status=$?
-  echo "Could not invoke Exchange at $function_arn. Check the active workload credentials and grant lambda:InvokeFunction on this exact ARN (pipelines_iam_role: enable_exchange = true). For cross-account calls, check the Lambda resource policy permits the caller's AWS Organization. If the function is missing, ask Platform to check its deployment in us-east-1. AWS CLI v2 is required." >&2
+  echo "Could not invoke Exchange at $function_arn. Check the active workload credentials and grant lambda:InvokeFunction on this exact ARN (pipelines_iam_role: enable_github_token_exchange = true). For cross-account calls, check the Lambda resource policy permits the caller's AWS Organization. If the function is missing, ask Platform to check its deployment in us-east-1. AWS CLI v2 is required." >&2
   exit "$status"
 fi
 
