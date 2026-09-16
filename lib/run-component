@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set +x
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+component="$1"
+for name in ${!BUILDKITE_PLUGIN_AWS_ASSUME_ROLE_WITH_WEB_IDENTITY_@} ${!BUILDKITE_PLUGIN_ECR_@} ${!BUILDKITE_PLUGIN_AWS_SSM_@}; do
+  unset "$name"
+done
+export AWS_DEFAULT_OUTPUT=json AWS_PAGER=""
+
+case "$component" in
+  resolve-role)
+    arn="${BUILDKITE_PLUGIN_JUST_WORKS_ROLE_ARN:-}"
+    if [[ -z "$arn" ]]; then
+      : "${BUILDKITE_ORGANIZATION_SLUG:?Buildkite organization slug is missing}"
+      : "${BUILDKITE_PIPELINE_SLUG:?Buildkite pipeline slug is missing}"
+      account="${BUILDKITE_PLUGIN_JUST_WORKS_ACCOUNT_ID:-${AWS_ACCOUNT_ID:-}}"
+      partition=aws
+      case "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" in
+        cn-*) partition=aws-cn ;;
+        us-gov-*) partition=aws-us-gov ;;
+      esac
+      if [[ -z "$account" ]]; then
+        identity=$(aws sts get-caller-identity --output json)
+        account=$(jq -er '.Account' <<< "$identity")
+        partition=$(jq -er '.Arn | split(":")[1]' <<< "$identity")
+      fi
+      if [[ ! "$account" =~ ^[0-9]{12}$ ]]; then
+        echo 'AWS account ID must contain exactly 12 digits. Set account-id or role-arn.' >&2
+        exit 1
+      fi
+      arn="arn:$partition:iam::$account:role/pipeline-$BUILDKITE_ORGANIZATION_SLUG-$BUILDKITE_PIPELINE_SLUG"
+    fi
+    printf '%s\0%s\0' JW_ROLE_ARN "$arn" >&3
+    ;;
+  role)
+    export BUILDKITE_PLUGIN_AWS_ASSUME_ROLE_WITH_WEB_IDENTITY_ROLE_ARN="$2"
+    for name in ${!BUILDKITE_PLUGIN_JUST_WORKS_SESSION_TAGS_@}; do
+      export "BUILDKITE_PLUGIN_AWS_ASSUME_ROLE_WITH_WEB_IDENTITY_SESSION_TAGS_${name#BUILDKITE_PLUGIN_JUST_WORKS_SESSION_TAGS_}=${!name}"
+    done
+    # shellcheck source=../vendor/aws-assume-role-with-web-identity/lib/plugin.bash
+    source "$root/vendor/aws-assume-role-with-web-identity/lib/plugin.bash"
+    for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+      if [[ -z "${!name}" || "${!name}" == null ]]; then
+        echo "AWS STS returned no usable credentials. No credentials will be exported." >&2
+        exit 1
+      fi
+      printf '%s\0%s\0' "$name" "${!name}" >&3
+    done
+    ;;
+  ecr)
+    # A separate ECR identity never escapes this child process.
+    if [[ "${BUILDKITE_PLUGIN_JUST_WORKS_ASSUME_ROLE:-true}" == true && -n "${BUILDKITE_PLUGIN_JUST_WORKS_ECR_ROLE_ARN:-}" && "$BUILDKITE_PLUGIN_JUST_WORKS_ECR_ROLE_ARN" != "${JW_ROLE_ARN:-}" ]]; then
+      # shellcheck source=plugin.bash
+      source "$root/lib/plugin.bash"
+      jw_run role "Could not assume the ECR IAM role. Check that the role exists and its OIDC trust policy permits this job." "$BUILDKITE_PLUGIN_JUST_WORKS_ECR_ROLE_ARN"
+    fi
+    version=$(aws --version)
+    if [[ "$version" != aws-cli/2.* ]]; then
+      echo "just-works requires AWS CLI v2 for ECR login; install it on this agent." >&2
+      exit 1
+    fi
+    export BUILDKITE_PLUGIN_ECR_LOGIN=true
+    public_only=false
+    for name in ${!BUILDKITE_PLUGIN_JUST_WORKS_ECR_ACCOUNTS_@}; do
+      if [[ "${!name}" != public.ecr.aws ]]; then
+        public_only=false
+        break
+      fi
+      public_only=true
+    done
+    region="${BUILDKITE_PLUGIN_JUST_WORKS_ECR_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
+    if [[ -z "$region" ]]; then
+      region=$(aws configure get region) || true
+    fi
+    if [[ -n "$region" ]]; then
+      export BUILDKITE_PLUGIN_ECR_REGION="$region" AWS_REGION="$region" AWS_DEFAULT_REGION="$region"
+    elif [[ "$public_only" == false ]]; then
+      echo 'AWS region is missing for ECR. Set ecr.region, AWS_REGION, AWS_DEFAULT_REGION, or an AWS profile region.' >&2
+      exit 1
+    fi
+    for name in ${!BUILDKITE_PLUGIN_JUST_WORKS_ECR_ACCOUNTS_@}; do
+      export "BUILDKITE_PLUGIN_ECR_ACCOUNT_IDS_${name#BUILDKITE_PLUGIN_JUST_WORKS_ECR_ACCOUNTS_}=${!name}"
+    done
+    # shellcheck source=../vendor/ecr/hooks/environment
+    source "$root/vendor/ecr/hooks/environment"
+    ;;
+  ssm)
+    region="${BUILDKITE_PLUGIN_JUST_WORKS_SSM_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
+    if [[ -n "$region" ]]; then
+      export AWS_REGION="$region" AWS_DEFAULT_REGION="$region"
+    fi
+    for name in ${!BUILDKITE_PLUGIN_JUST_WORKS_SSM_ADDITIONAL_PARAMETERS_@}; do
+      export "BUILDKITE_PLUGIN_AWS_SSM_PARAMETERS_${name#BUILDKITE_PLUGIN_JUST_WORKS_SSM_ADDITIONAL_PARAMETERS_}=${!name}"
+    done
+    export BUILDKITE_PLUGIN_AWS_SSM_PATH="${BUILDKITE_PLUGIN_JUST_WORKS_SSM_PREFIX:-/pipelines/${BUILDKITE_ORGANIZATION_SLUG:-}/${BUILDKITE_PIPELINE_SLUG:-}/}"
+    export BUILDKITE_PLUGIN_AWS_SSM_INCLUDE_DEFAULT_PREFIX="${BUILDKITE_PLUGIN_JUST_WORKS_SSM_INCLUDE_DEFAULT_PREFIX:-true}"
+    if [[ "$BUILDKITE_PLUGIN_AWS_SSM_INCLUDE_DEFAULT_PREFIX" == true && -z "${BUILDKITE_PLUGIN_JUST_WORKS_SSM_PREFIX:-}" ]]; then
+      : "${BUILDKITE_ORGANIZATION_SLUG:?Buildkite organization slug is missing; set ssm.prefix or disable ssm.include-default-prefix}"
+      : "${BUILDKITE_PIPELINE_SLUG:?Buildkite pipeline slug is missing; set ssm.prefix or disable ssm.include-default-prefix}"
+    fi
+    # shellcheck source=ssm.bash
+    source "$root/lib/ssm.bash"
+    # The upstream SSM hook defines keys; vendored sources are excluded from lint.
+    # shellcheck disable=SC2154
+    for key in "${keys[@]}"; do
+      printf '%s\0%s\0' "$key" "${!key}" >&3
+    done
+    ;;
+  github)
+    # shellcheck source=exchange.bash
+    source "$root/lib/exchange.bash"
+    ;;
+  *) echo "Unknown component: $component" >&2; exit 1 ;;
+esac

@@ -1,0 +1,21 @@
+steps:
+  - label: ":shell: Tests"
+    key: tests
+    plugins:
+      - plugin-tester#4bcc01516aa357ac887afaf28e41de32bea8cc75:
+          version: v4.2.0
+
+  - label: ":sparkles: Plugin lint"
+    key: plugin-lint
+    plugins:
+      - plugin-linter#af70ca650fb68a08ded94b22328faec78a431eae:
+          id: buildkite/just-works
+          image-version: v2.1.0
+
+  - label: ":shell: ShellCheck"
+    key: shellcheck
+    command: docker run --rm -v "$$PWD:/mnt:ro" koalaman/shellcheck:v0.11.0 --exclude=SC1091 hooks/* lib/*
+
+  - label: ":lock: Vendor integrity"
+    key: vendor-integrity
+    command: sha256sum --check vendor.sha256

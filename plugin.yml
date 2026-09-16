@@ -1,0 +1,74 @@
+name: Just Works
+description: Assume AWS roles, log into ECR, and load SSM parameters with pinned bundled plugins
+author: https://github.com/buildkite
+requirements:
+  - bash
+configuration:
+  additionalProperties: false
+  properties:
+    assume-role:
+      type: boolean
+      default: true
+    role-arn:
+      type: string
+      minLength: 1
+    account-id:
+      type: string
+      pattern: '^[0-9]{12}$'
+    session-tags:
+      type: array
+      items:
+        type: string
+    github:
+      type: object
+      additionalProperties: false
+      properties:
+        changes-enabled:
+          type: boolean
+          default: false
+        organization:
+          type: string
+          pattern: '^[a-zA-Z0-9][a-zA-Z0-9-]*$'
+    ecr:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        role-arn:
+          type: string
+          minLength: 1
+        accounts:
+          type: array
+          default: []
+          items:
+            type: string
+            pattern: '^([0-9]{12}|public\.ecr\.aws)$'
+        region:
+          type: string
+          minLength: 1
+    ssm:
+      type: object
+      additionalProperties: false
+      properties:
+        include-default-prefix:
+          type: boolean
+          default: true
+        enabled:
+          type: boolean
+          default: true
+        prefix:
+          type: string
+          pattern: '^/[^/].*'
+        region:
+          type: string
+          minLength: 1
+        additional_parameters:
+          type: object
+          minProperties: 1
+          patternProperties:
+            '^[A-Z_][A-Z0-9_]*$':
+              type: string
+              minLength: 1
+          additionalProperties: false
