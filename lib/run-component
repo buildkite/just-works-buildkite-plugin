@@ -62,15 +62,24 @@ case "$component" in
       exit 1
     fi
     export BUILDKITE_PLUGIN_ECR_LOGIN=true
+    public_only=false
+    for name in ${!BUILDKITE_PLUGIN_JUST_WORKS_ECR_ACCOUNTS_@}; do
+      if [[ "${!name}" != public.ecr.aws ]]; then
+        public_only=false
+        break
+      fi
+      public_only=true
+    done
     region="${BUILDKITE_PLUGIN_JUST_WORKS_ECR_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
     if [[ -z "$region" ]]; then
       region=$(aws configure get region) || true
     fi
-    if [[ -z "$region" ]]; then
+    if [[ -n "$region" ]]; then
+      export BUILDKITE_PLUGIN_ECR_REGION="$region" AWS_REGION="$region" AWS_DEFAULT_REGION="$region"
+    elif [[ "$public_only" == false ]]; then
       echo 'AWS region is missing for ECR. Set ecr.region, AWS_REGION, AWS_DEFAULT_REGION, or an AWS profile region.' >&2
       exit 1
     fi
-    export BUILDKITE_PLUGIN_ECR_REGION="$region" AWS_REGION="$region" AWS_DEFAULT_REGION="$region"
     for name in ${!BUILDKITE_PLUGIN_JUST_WORKS_ECR_ACCOUNTS_@}; do
       export "BUILDKITE_PLUGIN_ECR_ACCOUNT_IDS_${name#BUILDKITE_PLUGIN_JUST_WORKS_ECR_ACCOUNTS_}=${!name}"
     done

@@ -155,6 +155,41 @@ teardown() { teardown_plugin; }
 }
 @test "unsafe, duplicate, nested and empty prefix discovery fails closed" { for spec in '[[ ]]|No SSM parameters found' '[[["api-key","one"]],[["API_KEY","two"]]]|Multiple SSM parameters' '[[["path","unsafe"]]]|cannot be overwritten' '[[["nested/key","value"]]]|explicit mapping'; do export PAGES=${spec%%|*}; run_plugin; assert_failure; assert_output_has "${spec#*|}"; done; }
 @test "ECR region falls back through default and profile" { unset AWS_REGION; run_plugin; assert_success; [[ $CALLS_JSON == *123456789012.dkr.ecr.us-west-1.amazonaws.com* ]]; unset AWS_DEFAULT_REGION; export PROFILE_REGION=eu-central-1; run_plugin; assert_success; [[ $CALLS_JSON == *123456789012.dkr.ecr.eu-central-1.amazonaws.com* ]]; }
+@test "public-only ECR login needs no configured region" {
+  cfg ASSUME_ROLE false
+  cfg SSM_ENABLED false
+  cfg ECR_ACCOUNTS_0 public.ecr.aws
+  unset AWS_REGION AWS_DEFAULT_REGION PROFILE_REGION
+  run_plugin
+  assert_success
+  [[ $(events) == $'ecr\ndocker' ]]
+  jq -e '.[0].args == ["--region", "us-east-1", "ecr-public", "get-login-password"]' <<<"$CALLS_JSON"
+  jq -e '.[1].args == ["login", "--username", "AWS", "--password-stdin", "public.ecr.aws"]' <<<"$CALLS_JSON"
+  [[ -z $(exported AWS_REGION) && -z $(exported AWS_DEFAULT_REGION) ]]
+}
+
+@test "private, mixed and default ECR accounts still require a region" {
+  cfg ASSUME_ROLE false
+  cfg SSM_ENABLED false
+  unset AWS_REGION AWS_DEFAULT_REGION PROFILE_REGION
+  for accounts in default private public-private private-public; do
+    unset "${PREFIX}ECR_ACCOUNTS_0" "${PREFIX}ECR_ACCOUNTS_1"
+    case "$accounts" in
+      private) cfg ECR_ACCOUNTS_0 123456789012 ;;
+      public-private)
+        cfg ECR_ACCOUNTS_0 public.ecr.aws
+        cfg ECR_ACCOUNTS_1 123456789012 ;;
+      private-public)
+        cfg ECR_ACCOUNTS_0 123456789012
+        cfg ECR_ACCOUNTS_1 public.ecr.aws ;;
+    esac
+    run_plugin
+    assert_failure
+    assert_output_has 'AWS region is missing for ECR'
+    [[ $(events) == '' ]]
+  done
+}
+
 @test "Exchange is opt-in, uses workload role, overrides SSM tokens and hides secrets" {
   cfg GITHUB_CHANGES_ENABLED true
   cfg ECR_ROLE_ARN "$ECR_ROLE"

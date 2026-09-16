@@ -55,6 +55,9 @@ explicit destinations winning collisions. Set `include-default-prefix: false`
 to load only those mappings. ECR and SSM region overrides do not change the
 command's region. See [plugin.yml](plugin.yml) for the configuration schema.
 
+Public-only ECR (`accounts: [public.ecr.aws]`) needs no configured region; private
+or mixed registries still require one.
+
 ## Disabling components
 
 ```yaml
