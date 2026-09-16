@@ -50,5 +50,4 @@ tracing, and vendor integrity. Plugin Linter validates metadata and README examp
 ShellCheck checks only first-party code without following vendored sources.
 No Node/npm or Python setup is required.
 
-A real AWS/OIDC smoke test is still required before release. See
-[configuration-audit.md](configuration-audit.md) for the limits of inferred defaults.
+A real AWS/OIDC smoke test is still required before release.
