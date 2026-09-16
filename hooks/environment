@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# shellcheck source=../lib/plugin.bash
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/plugin.bash"
+jw_environment
