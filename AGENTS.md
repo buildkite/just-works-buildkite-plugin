@@ -23,8 +23,12 @@
 
 ## Verification
 
+- Run `npm ci --ignore-scripts` then `npm test` for the complete CI suite.
 - Run `python3 tests/test_plugin.py` for behavioral tests and vendor checksums.
-- Run `shellcheck -x -P SCRIPTDIR hooks/* lib/*` for first-party shell code.
+- Run `npm run lint:shell` for first-party shell code only. Do not follow sourced
+  files into `vendor/`, or pass vendored files to any linter or formatter.
+- Keep `vendor/` excluded from all current and future formatting/linting tools.
+  Vendor checksum checks and execution in behavioral tests are not linting.
 - Run `sha256sum --check vendor.sha256`; it detects local drift but is not a
   substitute for comparison with upstream when changing dependency pins.
 - Keep this invariant in the README's contributor guidance as well.

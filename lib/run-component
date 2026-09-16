@@ -93,6 +93,8 @@ case "$component" in
     fi
     # shellcheck source=ssm.bash
     source "$root/lib/ssm.bash"
+    # The upstream SSM hook defines keys; vendored sources are excluded from lint.
+    # shellcheck disable=SC2154
     for key in "${keys[@]}"; do
       printf '%s\0%s\0' "$key" "${!key}" >&3
     done

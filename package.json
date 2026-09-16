@@ -1,0 +1,12 @@
+{
+  "name": "just-works-buildkite-plugin-tests",
+  "private": true,
+  "scripts": {
+    "test": "python3 tests/test_plugin.py && npm run lint:shell && sha256sum --check vendor.sha256 && node tests/validate-config.cjs",
+    "lint:shell": "shellcheck --exclude=SC1091 hooks/* lib/*"
+  },
+  "devDependencies": {
+    "ajv": "6.15.0",
+    "yaml": "2.8.3"
+  }
+}

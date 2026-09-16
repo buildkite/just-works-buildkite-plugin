@@ -1,25 +1,16 @@
 # Just Works Buildkite Plugin
 
-One plugin for the recurring AWS setup sequence, with no runtime code downloads:
+One plugin for the recurring AWS setup sequence: assume IAM roles, log into ECR,
+load SSM parameters, and optionally obtain GitHub authentication through Exchange.
+Dependencies are bundled at immutable revisions, with no runtime code downloads.
 
-1. Assume the conventional pipeline IAM role using Buildkite OIDC (`environment`).
-2. Log into ECR, optionally using a separate role just for login (`environment`).
-3. Load the pipeline's conventional SSM prefix into the command's environment
-   using the workload role (`pre-command`).
-4. Optionally exchange Buildkite OIDC for GitHub App authentication (`pre-command`).
+## Why this exists
 
-Each component can be disabled independently. Failures stop the job, preserve the
-tool's original stdout/stderr and exit status, and add a plain-English explanation
-of what to check. A missing explicitly requested SSM parameter, or an entirely
-empty prefix without explicit parameters, is an error. Discovery cannot detect one
-missing leaf if other parameters exist: use explicit mappings when a particular
-set of parameters is required.
+## Example
 
-## Status and installation
-
-This directory is a self-contained plugin package, prepared for publication as
-`buildkite/just-works-buildkite-plugin`. It is **not published or released** yet.
-The intended usage after publication is `buildkite/just-works#<release-commit>`.
+Source lives in [buildkite/just-works-buildkite-plugin](https://github.com/buildkite/just-works-buildkite-plugin).
+It is **not released** yet. The intended usage after release is
+`buildkite/just-works#<release-commit>`.
 Use a full commit SHA for immutable consumer pinning: Git tags can be moved.
 
 ### All defaults
@@ -105,23 +96,28 @@ chaining. Only the Docker login persists, not the ECR role's AWS credentials.
 
 ## Configuration
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `assume-role` | `true` | Enable all IAM assumptions; disable to use existing credentials for ECR, SSM and the command. |
-| `role-arn` | Conventional ARN | `pipeline-<organization-slug>-<pipeline-slug>` in the resolved account. |
-| `account-id` | `AWS_ACCOUNT_ID`, then ambient account | Target account for the conventional role; ignored with explicit `role-arn`. Quote the 12 digits. |
-| `ecr.enabled` | `true` | Log into ECR. |
-| `ecr.role-arn` | Workload role | Optional ECR-only identity. Ignored with `assume-role: false`. No top-level alias. |
-| `ecr.accounts` | `[]` → authenticated caller's account | Quoted registry IDs or `public.ecr.aws`; override for cross-account or multiple registries. |
-| `ecr.region` | Inherited AWS region | Override only ECR calls. Public ECR always uses `us-east-1`, as required by AWS. |
-| `session-tags` | None | OIDC claims to send as session tags to both roles. Match your trust policies. |
-| `ssm.enabled` | `true` | Load parameters before the command. |
-| `ssm.prefix` | `/pipelines/<org>/<pipeline>/` | Nonrecursive parameter discovery. |
-| `ssm.include-default-prefix` | `true` | Include prefix discovery alongside explicit mappings; `false` loads only explicit parameters. Also controls an overridden `ssm.prefix`. |
-| `ssm.region` | Inherited AWS region | Override only SSM calls. |
-| `ssm.parameters` | None | Additional required mappings from uppercase environment names to exact SSM names; override discovered destinations. |
-| `github.changes-enabled` | `false` | Obtain an Exchange GitHub App token after SSM loading. |
-| `github.organization` | `BUILDKITE_ORGANIZATION_SLUG` | GitHub organization authorized by the central Exchange policy. Override when the GitHub and Buildkite organizations differ. |
+All options are optional. `ecr`, `ssm`, and `github` are objects whose fields are
+shown with dotted names below. Defaults may require the environment and permissions
+listed under [Requirements and security](#requirements-and-security).
+Unknown properties are rejected by [plugin.yml](plugin.yml).
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `assume-role` | boolean | `true` | Enable all IAM assumptions; disable to use existing credentials for ECR, SSM and the command. |
+| `role-arn` | string | Conventional ARN | `pipeline-<organization-slug>-<pipeline-slug>` in the resolved account. |
+| `account-id` | string | `AWS_ACCOUNT_ID`, then ambient account | Target account for the conventional role; ignored with explicit `role-arn`. Quote the 12 digits. |
+| `ecr.enabled` | boolean | `true` | Log into ECR. |
+| `ecr.role-arn` | string | Workload role | Optional ECR-only identity. Ignored with `assume-role: false`. No top-level alias. |
+| `ecr.accounts` | array of strings | `[]` → authenticated caller's account | Quoted registry IDs or `public.ecr.aws`; override for cross-account or multiple registries. |
+| `ecr.region` | string | Inherited AWS region | Override only ECR calls. Public ECR always uses `us-east-1`, as required by AWS. |
+| `session-tags` | array of strings | None | OIDC claims to send as session tags to both roles. Match your trust policies. |
+| `ssm.enabled` | boolean | `true` | Load parameters before the command. |
+| `ssm.prefix` | string | `/pipelines/<org>/<pipeline>/` | Nonrecursive parameter discovery; must be a non-root absolute path. |
+| `ssm.include-default-prefix` | boolean | `true` | Include prefix discovery alongside explicit mappings; `false` loads only explicit parameters. Also controls an overridden `ssm.prefix`. |
+| `ssm.region` | string | Inherited AWS region | Override only SSM calls. |
+| `ssm.parameters` | object of strings | None | Nonempty mapping from uppercase environment names to exact SSM names; overrides discovered destinations. |
+| `github.changes-enabled` | boolean | `false` | Obtain an Exchange GitHub App token after SSM loading. |
+| `github.organization` | string | `BUILDKITE_ORGANIZATION_SLUG` | GitHub organization authorized by the central Exchange policy. Override when the GitHub and Buildkite organizations differ. |
 
 Inherited region means `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the AWS
 profile configuration. Component overrides do not alter the command's region.
@@ -138,6 +134,48 @@ For role/ECR setup only, use `ssm: {enabled: false}`. To use existing credential
 for SSM only, set `assume-role: false` and `ecr: {enabled: false}`. Disabling all
 three components, with GitHub authentication left disabled, performs no AWS/Docker
 calls and requires no AWS tooling.
+
+## How it works
+
+1. Assume the conventional pipeline IAM role using Buildkite OIDC (`environment`).
+2. Log into ECR, optionally using a separate role just for login (`environment`).
+3. Load the pipeline's conventional SSM prefix into the command's environment
+   using the workload role (`pre-command`).
+4. Optionally exchange Buildkite OIDC for GitHub App authentication (`pre-command`).
+
+Each component can be disabled independently. Failures stop the job, preserve the
+upstream hook's output and exit status, and add a plain-English explanation.
+A missing explicitly requested SSM parameter, or an entirely empty prefix without
+explicit parameters, is an error. Discovery cannot detect one missing leaf if
+other parameters exist: use explicit mappings when a particular set is required.
+
+The lifecycle hooks translate just-works configuration into upstream plugin
+configuration. Each component runs in an isolated child shell, so upstream shell
+options, exits, and plugin configuration do not leak into the job. Successful
+environment exports return over an unlinked temporary file descriptor; secret
+values are not evaluated as shell code.
+
+For SSM, the wrapper discovers names, combines them with explicit mappings, and
+checks for missing names. Fetching, parsing, and exporting values belongs to the
+unmodified upstream hook. Exchange is a first-party client of the central service,
+not another vendored plugin.
+
+### Runtime invariants
+
+- **One identity for the workload.** An ECR-only role stays isolated; it does not
+  replace the workload role used for checkout, SSM, Exchange, or the command.
+- **Inherited region unless overridden.** ECR and SSM overrides are local to
+  their component, not changes to the command's region.
+- **Explicit settings win.** Explicit SSM destinations override discovered
+  defaults; `include-default-prefix: false` disables discovery entirely.
+- **No silent authentication fallback.** A failed assumption does not try a
+  different role. Component failures stop the command with diagnostic output.
+- **GitHub authentication is opt-in.** Exchange runs only with
+  `github.changes-enabled: true` and replaces `GH_TOKEN` and `GITHUB_TOKEN` after SSM.
+- **Dependencies remain upstream code.** No vendor patches, replacement loaders,
+  formatting, or linting. See the contributor invariants below for upgrade rules.
+
+### SSM limitations
 
 SSM value loading uses the unmodified upstream hook: duplicate mappings and batches
 of up to ten are supported. Its text parser does not preserve multiline values or
@@ -298,11 +336,11 @@ plugin's diagnostics.
 Bundled code and licenses live in `vendor/`. Neither hooks nor their libraries
 download executable code. Versions are based on the existing Buildkite pipelines:
 
-| Dependency | Version | Immutable upstream revision |
-| --- | --- | --- |
-| aws-assume-role-with-web-identity | v1.4.0 | [697551f](https://github.com/buildkite-plugins/aws-assume-role-with-web-identity-buildkite-plugin/commit/697551fae50ad4ba3179caf4348c8467b1a63cc2) |
-| ecr | v2.9.0 | [73d58b9](https://github.com/buildkite-plugins/ecr-buildkite-plugin/commit/73d58b9491c439db5c5d136474ac910ea31f41d0) |
-| aws-ssm | main snapshot (2026-09-16) | [dff5bd8](https://github.com/buildkite-plugins/aws-ssm-buildkite-plugin/commit/dff5bd8c716178d2aa3eb0f255011a98ce3cb9b5) |
+| Vendored plugin | Version | Purpose | Immutable upstream revision |
+| --- | --- | --- | --- |
+| aws-assume-role-with-web-identity | v1.4.0 | Exchanges Buildkite OIDC for AWS role credentials, for the workload and optional separate ECR identity. | [697551f](https://github.com/buildkite-plugins/aws-assume-role-with-web-identity-buildkite-plugin/commit/697551fae50ad4ba3179caf4348c8467b1a63cc2) |
+| ecr | v2.9.0 | Authenticates Docker to the configured ECR registries using the selected AWS identity. | [73d58b9](https://github.com/buildkite-plugins/ecr-buildkite-plugin/commit/73d58b9491c439db5c5d136474ac910ea31f41d0) |
+| aws-ssm | main snapshot (2026-09-16; not a release tag) | Fetches and decrypts the composed parameter mappings, then exports their values before the command. Includes upstream's AWS error-propagation fix. | [dff5bd8](https://github.com/buildkite-plugins/aws-ssm-buildkite-plugin/commit/dff5bd8c716178d2aa3eb0f255011a98ce3cb9b5) |
 
 Every vendored file is byte-identical to its pinned upstream revision. IAM, ECR
 and SSM execute the pristine bundled code. `lib/ssm.bash` composes the prefix and
@@ -365,15 +403,29 @@ propagate configuration/exports for us. For this small dependency set, bundled
 files currently provide the simpler runtime guarantee. No submodule conversion
 has been made.
 
-## Verification
+## Developing
 
 From this directory:
 
 ```sh
-python3 tests/test_plugin.py
-shellcheck -x -P SCRIPTDIR hooks/* lib/*
-sha256sum --check vendor.sha256
+npm ci --ignore-scripts
+npm test
 ```
+
+This runs the Python behavioral tests, first-party ShellCheck (0.11.0 in CI),
+vendor checksum verification, and plugin schema/README YAML example validation.
+`.buildkite/pipeline.yml` runs the same suite in the supplied Docker image;
+agents need Docker, but no AWS credentials. To reproduce the container locally:
+
+```sh
+docker build -f .buildkite/Dockerfile -t just-works-tests .
+docker run --rm just-works-tests
+```
+
+**Vendored files are exempt from all formatting and linting.** ShellCheck only
+checks `hooks/` and `lib/`, without following sourced dependencies; Prettier
+ignores `vendor/`. Apply the same exclusion to any future tooling. Checksum
+verification and behavioral execution of vendored code remain enabled.
 
 Tests execute the bundled IAM/ECR/SSM code and first-party Exchange client
 against fake AWS, Docker and agent binaries, and verify vendor checksums;
@@ -386,3 +438,21 @@ read during development because its MCP connection required authentication.
 
 See [the configuration audit](configuration-audit.md) for the limits of automatic
 configuration in Buildkite's checked-in pipelines.
+
+## Contributing
+
+1. Create a branch or fork, and read [AGENTS.md](AGENTS.md).
+2. Make the smallest change with tests for its behavior. Fix dependency bugs
+   upstream rather than patching vendored files or adding replacement behavior.
+3. Keep `plugin.yml`, the configuration reference, and examples synchronized.
+4. Run the complete suite under [Developing](#developing), then open a pull request.
+
+README conventions follow the [Buildkite plugin-writing guide](https://buildkite.com/docs/pipelines/integrations/plugins/writing#step-6-add-a-readme)
+and [plugin template](https://github.com/buildkite-plugins/template-buildkite-plugin),
+with [ECR](https://github.com/buildkite-plugins/ecr-buildkite-plugin) and
+[SSM](https://github.com/buildkite-plugins/aws-ssm-buildkite-plugin) as usage precedents.
+Keep the “Why this exists” section empty for the maintainer to write.
+
+## License
+
+[MIT](LICENSE). Vendored dependencies retain their upstream licenses in `vendor/`.

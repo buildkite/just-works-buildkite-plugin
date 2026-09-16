@@ -1,0 +1,6 @@
+steps:
+  - label: ":test_tube: Tests and validation"
+    key: tests
+    commands:
+      - docker build -f .buildkite/Dockerfile -t "just-works-tests:$$BUILDKITE_JOB_ID" .
+      - docker run --rm "just-works-tests:$$BUILDKITE_JOB_ID"
